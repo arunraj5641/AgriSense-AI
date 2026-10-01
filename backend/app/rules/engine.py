@@ -3,6 +3,8 @@ from app.rules.equipment import validate_equipment
 from app.rules.water import validate_water
 from app.rules.farm_size import validate_farm_size
 from app.rules.crop_stage import validate_crop_stage
+from app.rules.weather import validate_weather
+from typing import Any
 
 class RuleEngine:
     @staticmethod
@@ -16,7 +18,9 @@ class RuleEngine:
         farm_size: float,
         min_required_size: float,
         current_stage: str,
-        valid_stages: list[str]
+        valid_stages: list[str],
+        weather_data: dict[str, Any] | None = None,
+        action: str | None = None
     ) -> dict:
         results = {
             "budget": validate_budget(budget_available, estimated_cost),
@@ -26,8 +30,12 @@ class RuleEngine:
             "crop_stage": validate_crop_stage(current_stage, valid_stages)
         }
         
+        if weather_data is not None:
+            results["weather"] = validate_weather(action or "", weather_data)
+        
         all_passed = all(passed for passed, _ in results.values())
         return {
             "is_valid": all_passed,
             "details": results
         }
+

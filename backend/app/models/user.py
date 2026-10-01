@@ -7,6 +7,8 @@ class UserRole(str, enum.Enum):
     FARMER = "farmer"
     AGRONOMIST = "agronomist"
     FOOD_PROCESSING_UNIT = "food_processing_unit"
+    EXTENSION_OFFICER = "extension_officer"
+    ADMIN = "admin"
 
 class User(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "users"
@@ -18,3 +20,4 @@ class User(Base, UUIDMixin, TimestampMixin):
 
     # Relationships
     farmer_profile = relationship("Farmer", back_populates="user", uselist=False, cascade="all, delete-orphan")
+    reviews = relationship("RecommendationReview", back_populates="reviewer")

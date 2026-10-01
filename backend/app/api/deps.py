@@ -44,3 +44,14 @@ def require_role(role: UserRole):
             )
         return current_user
     return role_checker
+
+def require_extension_officer():
+    async def officer_checker(current_user: Annotated[User, Depends(get_current_user)]) -> User:
+        if current_user.role not in [UserRole.EXTENSION_OFFICER, UserRole.AGRONOMIST]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only Agricultural Extension Officers can perform this action."
+            )
+        return current_user
+    return officer_checker
+
