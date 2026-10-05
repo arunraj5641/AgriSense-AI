@@ -106,11 +106,13 @@ async def generate_recommendation(
     )
     
     # Save recommendation with evaluation_metadata and initial status
+    is_high_impact = rec_result.get("is_high_impact", False)
     rec = Recommendation(
         farm_id=req.farm_id,
         recommendation=rec_result["recommendation"],
         explanation=rec_result["explanation"],
         status=RecommendationStatus.GENERATED,
+        is_high_impact=is_high_impact,
         constraints_considered=rec_result["constraints_considered"],
         evaluation_metadata={
             "evaluation": rec_result.get("evaluation", {}),
@@ -137,7 +139,7 @@ async def generate_recommendation(
         recommendation_id=rec.id,
         action="Recommendation Generated",
         user=user,
-        details=f"Generated recommendation for '{farm.name}' (Target action: {req.target_action})."
+        details=f"Generated recommendation for '{farm.name}' (Target action: {req.target_action}, High-Impact: {is_high_impact})."
     )
 
     await db.commit()
@@ -288,6 +290,7 @@ async def get_officer_queue(
             explanation=r.explanation,
             confidence_score=r.confidence_score,
             estimated_cost=r.estimated_cost,
+            is_high_impact=r.is_high_impact,
             created_at=r.created_at,
             status=current_rec_status,
             review_status=current_rev_status,
@@ -439,4 +442,102 @@ async def get_recommendation_reviews(
 
     await _check_rec_access(db, rec, user)
     return await ReviewService.get_reviews_for_recommendation(db, id)
+
+@router.post("/{id}/implement", response_model=RecommendationResponse)
+async def implement_recommendation(
+    id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user)
+):
+    """
+    Executes and implements a recommendation on the farm.
+    Enforces the Human-in-the-Loop (HITL) compliance execution gate:
+    1. Authenticates the user and verifies farm ownership (or Admin).
+    2. Prohibits re-implementation if already IMPLEMENTED.
+    3. Prohibits implementation if status is NEEDS_REVISION.
+    4. For HIGH-IMPACT recommendations, strictly blocks implementation unless status == APPROVED.
+    5. Transitions recommendation status to IMPLEMENTED, recording implemented_at,
+       implemented_by_id, and immutable audit logs.
+    """
+    result = await db.execute(select(Recommendation).where(Recommendation.id == id))
+    rec = result.scalar_one_or_none()
+    if not rec:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recommendation not found")
+
+    # Authorization: Only the farm owner who owns the farm (or Admin) can execute actions
+    if user.role != UserRole.ADMIN:
+        if user.role != UserRole.FARMER:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Unauthorized: Only the farm owner can implement recommendations."
+            )
+        farmer_res = await db.execute(select(Farmer).where(Farmer.user_id == user.id))
+        farmer = farmer_res.scalar_one_or_none()
+        if not farmer:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Unauthorized: Only the farm owner can implement recommendations."
+            )
+        farm_res = await db.execute(select(Farm).where(Farm.id == rec.farm_id))
+        farm = farm_res.scalar_one_or_none()
+        if not farm or farm.farmer_id != farmer.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Unauthorized: You do not own the farm associated with this recommendation."
+            )
+
+    # Prevent re-implementation of already IMPLEMENTED recommendations
+    if rec.status == RecommendationStatus.IMPLEMENTED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Recommendation has already been implemented."
+        )
+
+    # Block execution if revisions are required
+    if rec.status == RecommendationStatus.NEEDS_REVISION:
+        await AuditService.record_audit(
+            db=db,
+            recommendation_id=rec.id,
+            action="Implementation Blocked",
+            user=user,
+            details=f"Execution blocked: Recommendation was marked as NEEDS_REVISION by extension officer."
+        )
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Implementation blocked: Recommendation requires revision before execution."
+        )
+
+    # High-impact execution gate: Must be APPROVED by Extension Officer
+    if rec.is_high_impact and rec.status != RecommendationStatus.APPROVED:
+        await AuditService.record_audit(
+            db=db,
+            recommendation_id=rec.id,
+            action="Implementation Blocked",
+            user=user,
+            details=f"Execution blocked: High-impact action requires Extension Officer approval before execution (current status: {rec.status.value})."
+        )
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Implementation blocked: High-impact recommendation requires human Extension Officer approval before execution (current status: {rec.status.value})."
+        )
+
+    # Successful execution: update state and record audit trail
+    rec.status = RecommendationStatus.IMPLEMENTED
+    rec.implemented_at = datetime.now()
+    rec.implemented_by_id = user.id
+
+    await AuditService.record_audit(
+        db=db,
+        recommendation_id=rec.id,
+        action="Recommendation Implemented",
+        user=user,
+        details=f"Recommendation successfully implemented on farm by {user.name} ({user.role.value if hasattr(user.role, 'value') else user.role})."
+    )
+
+    await db.commit()
+    await db.refresh(rec)
+    return rec
+
 

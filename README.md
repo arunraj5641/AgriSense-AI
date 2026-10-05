@@ -553,6 +553,8 @@ Comprehensive documentation validating every evaluation rubric requirement is av
   Reproducible data science notebook loading [`experiments/baseline_results.csv`](experiments/baseline_results.csv) with statistical visualizations.
 - **Comparison Visualization:** [`experiments/baseline_comparison.png`](experiments/baseline_comparison.png)  
   High-resolution 4-panel chart illustrating metric gains, constraint satisfaction, and farmer capital outlays.
+- **Dedicated Field Workflow Map:** [`docs/field_workflow_map.md`](docs/field_workflow_map.md)  
+  Unified multi-stakeholder operational field workflow connecting farmer resource profiling, deterministic advisory synthesis, human-in-the-loop approval gating, and food processing procurement contracts.
 - **Failure Mode & Edge Case Analysis:** [`docs/failure_mode_analysis.md`](docs/failure_mode_analysis.md)  
   Detailed system behavior, fallback logic, user messaging, and confidence impacts across 7 critical edge cases.
 - **Stakeholder Field Validation:** [`docs/stakeholder_validation.md`](docs/stakeholder_validation.md)  

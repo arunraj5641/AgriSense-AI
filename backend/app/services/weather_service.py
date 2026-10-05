@@ -154,7 +154,7 @@ class WeatherService:
                 temp, hum, rain, prob, wind, cond, desc = 28.0, 84.0, 14.0, 75, 18.0, "Rainy", "Southwest monsoon active with consistent rainfall."
         elif month in [10, 11]:
             if is_tn:
-                temp, hum, rain, prob, wind, cond, desc = 27.5, 88.0, 16.0, 80, 16.0, "Rainy", "Northeast monsoon active in Cauvery delta region."
+                temp, hum, rain, prob, wind, cond, desc = 28.5, 68.0, 2.5, 25, 12.0, "Partly Cloudy", "Transitional seasonal weather in Cauvery delta region with light showers."
             else:
                 temp, hum, rain, prob, wind, cond, desc = 26.0, 65.0, 1.0, 15, 10.0, "Clear", "Post-monsoon transition with dry soil conditions."
         elif month in [3, 4, 5]:

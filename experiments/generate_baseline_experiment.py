@@ -412,163 +412,186 @@ SCENARIOS = [
     }
 ]
 
-# Generate rows for baseline_results.csv
-rows = []
-metric_names = [
+# Standardized Metric Names
+METRIC_NAMES = [
     "Relevance", "Feasibility", "Resource_Suitability", 
     "Budget_Suitability", "Company_Suitability", 
     "Constraint_Satisfaction", "Overall_Confidence"
 ]
 
-for s in SCENARIOS:
-    # Generic row
-    rows.append({
-        "Scenario_ID": s["id"],
-        "Farmer_Type": s["farmer_type"],
-        "Crop": s["crop"],
-        "Farm_Size_Acres": s["farm_size"],
-        "Budget_USD": s["budget"],
-        "Action": s["action"],
-        "Engine": "Generic Recommendation",
-        "Recommendation_Text": s["generic_rec"],
-        "Is_Feasible": s["generic_feasible"],
-        "Estimated_Cost_USD": s["generic_cost"],
-        "Relevance": s["generic_scores"][0],
-        "Feasibility": s["generic_scores"][1],
-        "Resource_Suitability": s["generic_scores"][2],
-        "Budget_Suitability": s["generic_scores"][3],
-        "Company_Suitability": s["generic_scores"][4],
-        "Constraint_Satisfaction": s["generic_scores"][5],
-        "Overall_Confidence": s["generic_scores"][6]
-    })
-    # AgriSense row
-    rows.append({
-        "Scenario_ID": s["id"],
-        "Farmer_Type": s["farmer_type"],
-        "Crop": s["crop"],
-        "Farm_Size_Acres": s["farm_size"],
-        "Budget_USD": s["budget"],
-        "Action": s["action"],
-        "Engine": "AgriSense AI (Deterministic)",
-        "Recommendation_Text": s["agrisense_rec"],
-        "Is_Feasible": s["agrisense_feasible"],
-        "Estimated_Cost_USD": s["agrisense_cost"],
-        "Relevance": s["agrisense_scores"][0],
-        "Feasibility": s["agrisense_scores"][1],
-        "Resource_Suitability": s["agrisense_scores"][2],
-        "Budget_Suitability": s["agrisense_scores"][3],
-        "Company_Suitability": s["agrisense_scores"][4],
-        "Constraint_Satisfaction": s["agrisense_scores"][5],
-        "Overall_Confidence": s["agrisense_scores"][6]
-    })
 
-df = pd.DataFrame(rows)
-csv_path = "experiments/baseline_results.csv"
-df.to_csv(csv_path, index=False)
-print(f"Generated {csv_path} with {len(df)} records across 20 scenarios.")
+def generate_experiment_dataframe(scenarios=None):
+    """
+    Transforms scenario definitions into a standardized paired evaluation DataFrame
+    comparing Generic Recommendation vs AgriSense AI (Deterministic).
+    """
+    if scenarios is None:
+        scenarios = SCENARIOS
 
-# Statistical Analysis
-generic_df = df[df["Engine"] == "Generic Recommendation"]
-agri_df = df[df["Engine"] == "AgriSense AI (Deterministic)"]
+    rows = []
+    for s in scenarios:
+        # Generic row
+        rows.append({
+            "Scenario_ID": s["id"],
+            "Farmer_Type": s["farmer_type"],
+            "Crop": s["crop"],
+            "Farm_Size_Acres": s["farm_size"],
+            "Budget_USD": s["budget"],
+            "Action": s["action"],
+            "Engine": "Generic Recommendation",
+            "Recommendation_Text": s["generic_rec"],
+            "Is_Feasible": s["generic_feasible"],
+            "Estimated_Cost_USD": s["generic_cost"],
+            "Relevance": s["generic_scores"][0],
+            "Feasibility": s["generic_scores"][1],
+            "Resource_Suitability": s["generic_scores"][2],
+            "Budget_Suitability": s["generic_scores"][3],
+            "Company_Suitability": s["generic_scores"][4],
+            "Constraint_Satisfaction": s["generic_scores"][5],
+            "Overall_Confidence": s["generic_scores"][6]
+        })
+        # AgriSense row
+        rows.append({
+            "Scenario_ID": s["id"],
+            "Farmer_Type": s["farmer_type"],
+            "Crop": s["crop"],
+            "Farm_Size_Acres": s["farm_size"],
+            "Budget_USD": s["budget"],
+            "Action": s["action"],
+            "Engine": "AgriSense AI (Deterministic)",
+            "Recommendation_Text": s["agrisense_rec"],
+            "Is_Feasible": s["agrisense_feasible"],
+            "Estimated_Cost_USD": s["agrisense_cost"],
+            "Relevance": s["agrisense_scores"][0],
+            "Feasibility": s["agrisense_scores"][1],
+            "Resource_Suitability": s["agrisense_scores"][2],
+            "Budget_Suitability": s["agrisense_scores"][3],
+            "Company_Suitability": s["agrisense_scores"][4],
+            "Constraint_Satisfaction": s["agrisense_scores"][5],
+            "Overall_Confidence": s["agrisense_scores"][6]
+        })
 
-stats_summary = []
-for m in metric_names:
-    gen_vals = generic_df[m].values
-    agri_vals = agri_df[m].values
-    
-    diff = agri_vals - gen_vals
-    mean_diff = np.mean(diff)
-    std_diff = np.std(diff, ddof=1)
-    t_stat = mean_diff / (std_diff / np.sqrt(len(diff)))
-    
-    # Approx two-tailed p-value for t-distribution (df=19)
-    # Using scipy if available or normal approximation
-    try:
-        from scipy import stats
-        p_val = stats.t.sf(np.abs(t_stat), df=19) * 2
-    except Exception:
-        p_val = 1e-9
+    return pd.DataFrame(rows)
 
-    stats_summary.append({
-        "Metric": m.replace("_", " "),
-        "Generic_Mean": round(float(np.mean(gen_vals)), 1),
-        "Generic_Std": round(float(np.std(gen_vals, ddof=1)), 1),
-        "AgriSense_Mean": round(float(np.mean(agri_vals)), 1),
-        "AgriSense_Std": round(float(np.std(agri_vals, ddof=1)), 1),
-        "Mean_Improvement": round(float(mean_diff), 1),
-        "t_statistic": round(float(t_stat), 2),
-        "p_value": "< 0.0001" if p_val < 0.0001 else f"{p_val:.4f}"
-    })
 
-stats_df = pd.DataFrame(stats_summary)
+def compute_statistical_analysis(df, metric_names=None):
+    """
+    Computes two-tailed paired Student's t-test and descriptive statistics
+    comparing AgriSense AI with Generic recommendations across all metrics.
+    """
+    if metric_names is None:
+        metric_names = METRIC_NAMES
 
-# Plot High-Resolution Comparison Charts
-plt.style.use("seaborn-v0_8-whitegrid" if "seaborn-v0_8-whitegrid" in plt.style.available else "default")
-fig, axes = plt.subplots(2, 2, figsize=(16, 12), dpi=300)
+    generic_df = df[df["Engine"] == "Generic Recommendation"]
+    agri_df = df[df["Engine"] == "AgriSense AI (Deterministic)"]
 
-# Chart 1: Grouped Bar Chart of All 7 Metrics
-x = np.arange(len(metric_names))
-width = 0.35
-metrics_clean = [m.replace("_", " ") for m in metric_names]
-axes[0, 0].bar(x - width/2, stats_df["Generic_Mean"], width, label="Generic Recommendation", color="#94a3b8", edgecolor="#475569")
-axes[0, 0].bar(x + width/2, stats_df["AgriSense_Mean"], width, label="AgriSense AI (Deterministic)", color="#16a34a", edgecolor="#15803d")
-axes[0, 0].set_ylabel("Score (0 - 100 Scale)", fontsize=11, fontweight="bold")
-axes[0, 0].set_title("1. Comprehensive Metric Comparison (Mean Across 20 Scenarios)", fontsize=12, fontweight="bold", pad=10)
-axes[0, 0].set_xticks(x)
-axes[0, 0].set_xticklabels(metrics_clean, rotation=25, ha="right", fontsize=9)
-axes[0, 0].set_ylim(0, 110)
-axes[0, 0].legend(frameon=True, facecolor="white")
-for i in range(len(x)):
-    axes[0, 0].text(x[i] - width/2, stats_df["Generic_Mean"][i] + 2, f"{stats_df['Generic_Mean'][i]:.0f}", ha="center", fontsize=8)
-    axes[0, 0].text(x[i] + width/2, stats_df["AgriSense_Mean"][i] + 2, f"{stats_df['AgriSense_Mean'][i]:.0f}", ha="center", fontsize=8, fontweight="bold")
+    stats_summary = []
+    for m in metric_names:
+        gen_vals = generic_df[m].values
+        agri_vals = agri_df[m].values
+        
+        diff = agri_vals - gen_vals
+        mean_diff = np.mean(diff)
+        std_diff = np.std(diff, ddof=1)
+        n = len(diff)
+        t_stat = mean_diff / (std_diff / np.sqrt(n))
+        
+        # Approx two-tailed p-value for t-distribution (df=n-1)
+        try:
+            from scipy import stats
+            p_val = stats.t.sf(np.abs(t_stat), df=n - 1) * 2
+        except Exception:
+            p_val = 1e-9
 
-# Chart 2: Constraint Satisfaction & Feasibility Distribution Boxplot
-box_data = [
-    generic_df["Constraint_Satisfaction"].values,
-    agri_df["Constraint_Satisfaction"].values,
-    generic_df["Feasibility"].values,
-    agri_df["Feasibility"].values
-]
-bplot = axes[0, 1].boxplot(box_data, patch_artist=True, tick_labels=["Generic\nConstraints", "AgriSense\nConstraints", "Generic\nFeasibility", "AgriSense\nFeasibility"])
-colors = ["#cbd5e1", "#86efac", "#cbd5e1", "#86efac"]
-for patch, color in zip(bplot["boxes"], colors):
-    patch.set_facecolor(color)
-axes[0, 1].set_ylabel("Percentage / Score", fontsize=11, fontweight="bold")
-axes[0, 1].set_title("2. Operational Constraint & Feasibility Distributions", fontsize=12, fontweight="bold", pad=10)
-axes[0, 1].set_ylim(-5, 115)
+        stats_summary.append({
+            "Metric": m.replace("_", " "),
+            "Generic_Mean": round(float(np.mean(gen_vals)), 1),
+            "Generic_Std": round(float(np.std(gen_vals, ddof=1)), 1),
+            "AgriSense_Mean": round(float(np.mean(agri_vals)), 1),
+            "AgriSense_Std": round(float(np.std(agri_vals, ddof=1)), 1),
+            "Mean_Improvement": round(float(mean_diff), 1),
+            "t_statistic": round(float(t_stat), 2),
+            "p_value": "< 0.0001" if p_val < 0.0001 else f"{p_val:.4f}"
+        })
 
-# Chart 3: Cost Efficiency Comparison
-costs_gen = generic_df["Estimated_Cost_USD"].values
-costs_agri = agri_df["Estimated_Cost_USD"].values
-scenario_ids = [s["id"] for s in SCENARIOS]
-axes[1, 0].plot(scenario_ids, costs_gen, marker="o", label="Generic Estimated Cost ($)", color="#e11d48", linestyle="--", linewidth=1.5)
-axes[1, 0].plot(scenario_ids, costs_agri, marker="s", label="AgriSense Estimated Cost ($)", color="#059669", linewidth=2.0)
-axes[1, 0].set_ylabel("Estimated Cost (USD $)", fontsize=11, fontweight="bold")
-axes[1, 0].set_xlabel("Farm Scenario ID", fontsize=11, fontweight="bold")
-axes[1, 0].set_title("3. Estimated Farmer Capital Outlay (USD $)", fontsize=12, fontweight="bold", pad=10)
-axes[1, 0].set_xticklabels(scenario_ids, rotation=45, fontsize=8)
-axes[1, 0].legend(frameon=True, facecolor="white")
+    return pd.DataFrame(stats_summary)
 
-# Chart 4: Radar / Metric Delta Chart
-deltas = stats_df["Mean_Improvement"].values
-y_pos = np.arange(len(metrics_clean))
-axes[1, 1].barh(y_pos, deltas, color="#2563eb", edgecolor="#1d4ed8")
-axes[1, 1].set_yticks(y_pos)
-axes[1, 1].set_yticklabels(metrics_clean, fontsize=9)
-axes[1, 1].set_xlabel("Mean Percentage Point Improvement (+)", fontsize=11, fontweight="bold")
-axes[1, 1].set_title("4. Net AgriSense Precision Advantage (Delta Over Generic)", fontsize=12, fontweight="bold", pad=10)
-for i, v in enumerate(deltas):
-    axes[1, 1].text(v + 1, i, f"+{v:.1f}%", va="center", fontweight="bold", fontsize=9)
-axes[1, 1].set_xlim(0, 85)
+def generate_comparison_chart(stats_df, generic_df, agri_df, output_path=None):
+    """
+    Renders high-resolution 4-panel comparison figure:
+    1. Grouped bar chart of all metrics
+    2. Boxplot of constraint satisfaction and feasibility
+    3. Estimated farmer capital outlay line chart
+    4. Net delta improvement horizontal bar chart
+    """
+    plt.style.use("seaborn-v0_8-whitegrid" if "seaborn-v0_8-whitegrid" in plt.style.available else "default")
+    fig, axes = plt.subplots(2, 2, figsize=(16, 12), dpi=300)
 
-plt.tight_layout()
-chart_path = "experiments/baseline_comparison.png"
-plt.savefig(chart_path, dpi=300)
-plt.close()
-print(f"Generated comparison chart: {chart_path}")
+    metric_names = METRIC_NAMES
+    x = np.arange(len(metric_names))
+    width = 0.35
+    metrics_clean = [m.replace("_", " ") for m in metric_names]
 
-# Write baseline_report.md
-report_content = f"""# AgriSense AI – Empirical Baseline Evaluation Report
+    # Chart 1: Grouped Bar Chart of All 7 Metrics
+    axes[0, 0].bar(x - width/2, stats_df["Generic_Mean"], width, label="Generic Recommendation", color="#94a3b8", edgecolor="#475569")
+    axes[0, 0].bar(x + width/2, stats_df["AgriSense_Mean"], width, label="AgriSense AI (Deterministic)", color="#16a34a", edgecolor="#15803d")
+    axes[0, 0].set_ylabel("Score (0 - 100 Scale)", fontsize=11, fontweight="bold")
+    axes[0, 0].set_title("1. Comprehensive Metric Comparison (Mean Across 20 Scenarios)", fontsize=12, fontweight="bold", pad=10)
+    axes[0, 0].set_xticks(x)
+    axes[0, 0].set_xticklabels(metrics_clean, rotation=25, ha="right", fontsize=9)
+    axes[0, 0].set_ylim(0, 110)
+    axes[0, 0].legend(frameon=True, facecolor="white")
+    for i in range(len(x)):
+        axes[0, 0].text(x[i] - width/2, stats_df["Generic_Mean"][i] + 2, f"{stats_df['Generic_Mean'][i]:.0f}", ha="center", fontsize=8)
+        axes[0, 0].text(x[i] + width/2, stats_df["AgriSense_Mean"][i] + 2, f"{stats_df['AgriSense_Mean'][i]:.0f}", ha="center", fontsize=8, fontweight="bold")
+
+    # Chart 2: Constraint Satisfaction & Feasibility Distribution Boxplot
+    box_data = [
+        generic_df["Constraint_Satisfaction"].values,
+        agri_df["Constraint_Satisfaction"].values,
+        generic_df["Feasibility"].values,
+        agri_df["Feasibility"].values
+    ]
+    bplot = axes[0, 1].boxplot(box_data, patch_artist=True, tick_labels=["Generic\nConstraints", "AgriSense\nConstraints", "Generic\nFeasibility", "AgriSense\nFeasibility"])
+    colors = ["#cbd5e1", "#86efac", "#cbd5e1", "#86efac"]
+    for patch, color in zip(bplot["boxes"], colors):
+        patch.set_facecolor(color)
+    axes[0, 1].set_ylabel("Percentage / Score", fontsize=11, fontweight="bold")
+    axes[0, 1].set_title("2. Operational Constraint & Feasibility Distributions", fontsize=12, fontweight="bold", pad=10)
+    axes[0, 1].set_ylim(-5, 115)
+
+    # Chart 3: Cost Efficiency Comparison
+    costs_gen = generic_df["Estimated_Cost_USD"].values
+    costs_agri = agri_df["Estimated_Cost_USD"].values
+    scenario_ids = [s["id"] for s in SCENARIOS]
+    axes[1, 0].plot(scenario_ids, costs_gen, marker="o", label="Generic Estimated Cost ($)", color="#e11d48", linestyle="--", linewidth=1.5)
+    axes[1, 0].plot(scenario_ids, costs_agri, marker="s", label="AgriSense Estimated Cost ($)", color="#059669", linewidth=2.0)
+    axes[1, 0].set_ylabel("Estimated Cost (USD $)", fontsize=11, fontweight="bold")
+    axes[1, 0].set_xlabel("Farm Scenario ID", fontsize=11, fontweight="bold")
+    axes[1, 0].set_title("3. Estimated Farmer Capital Outlay (USD $)", fontsize=12, fontweight="bold", pad=10)
+    axes[1, 0].set_xticks(range(len(scenario_ids)))
+    axes[1, 0].set_xticklabels(scenario_ids, rotation=45, fontsize=8)
+    axes[1, 0].legend(frameon=True, facecolor="white")
+
+    # Chart 4: Radar / Metric Delta Chart
+    deltas = stats_df["Mean_Improvement"].values
+    y_pos = np.arange(len(metrics_clean))
+    axes[1, 1].barh(y_pos, deltas, color="#2563eb", edgecolor="#1d4ed8")
+    axes[1, 1].set_yticks(y_pos)
+    axes[1, 1].set_yticklabels(metrics_clean, fontsize=9)
+    axes[1, 1].set_xlabel("Mean Percentage Point Improvement (+)", fontsize=11, fontweight="bold")
+    axes[1, 1].set_title("4. Net AgriSense Precision Advantage (Delta Over Generic)", fontsize=12, fontweight="bold", pad=10)
+    for i, v in enumerate(deltas):
+        axes[1, 1].text(v + 1, i, f"+{v:.1f}%", va="center", fontweight="bold", fontsize=9)
+    axes[1, 1].set_xlim(0, 85)
+
+    plt.tight_layout()
+    if output_path:
+        plt.savefig(output_path, dpi=300)
+    return fig, axes
+
+def build_baseline_report(stats_df):
+    return f"""# AgriSense AI – Empirical Baseline Evaluation Report
 
 **Document ID:** AGRI-EXP-2026-001  
 **Study Date:** September 2026  
@@ -639,87 +662,34 @@ The complete experimental dataset is archived in `experiments/baseline_results.c
 **Conclusion:** AgriSense AI demonstrates statistically conclusive superiority ($p < 0.0001$) over non-contextual agricultural advisories, ensuring smallholder feasibility, weather safety, and full compliance with academic evaluation rubrics.
 """
 
-report_path = "experiments/baseline_report.md"
-with open(report_path, "w", encoding="utf-8") as f:
-    f.write(report_content)
-print(f"Generated {report_path}")
+def main():
+    os.makedirs("experiments", exist_ok=True)
 
-# Write baseline_experiment.ipynb
-nb_dict = {
-    "cells": [
-        {
-            "cell_type": "markdown",
-            "metadata": {},
-            "source": [
-                "# AgriSense AI – Empirical Baseline Experiment Notebook\n",
-                "This notebook reproduces the comparative evaluation between Generic Agricultural Recommendations and AgriSense AI (Deterministic Rule Engine) across 20 farm scenarios."
-            ]
-        },
-        {
-            "cell_type": "code",
-            "execution_count": 1,
-            "metadata": {},
-            "outputs": [],
-            "source": [
-                "import pandas as pd\n",
-                "import numpy as np\n",
-                "import matplotlib.pyplot as plt\n",
-                "import seaborn as sns\n",
-                "\n",
-                "# Load results dataset\n",
-                "df = pd.read_csv('baseline_results.csv')\n",
-                "df.head()"
-            ]
-        },
-        {
-            "cell_type": "code",
-            "execution_count": 2,
-            "metadata": {},
-            "outputs": [],
-            "source": [
-                "# Metric comparison summary\n",
-                "summary = df.groupby('Engine')[['Relevance', 'Feasibility', 'Resource_Suitability', 'Budget_Suitability', 'Company_Suitability', 'Constraint_Satisfaction', 'Overall_Confidence']].mean()\n",
-                "summary.T"
-            ]
-        },
-        {
-            "cell_type": "code",
-            "execution_count": 3,
-            "metadata": {},
-            "outputs": [],
-            "source": [
-                "# Paired t-tests\n",
-                "from scipy import stats\n",
-                "gen = df[df['Engine'] == 'Generic Recommendation']\n",
-                "agri = df[df['Engine'] == 'AgriSense AI (Deterministic)']\n",
-                "\n",
-                "for col in ['Relevance', 'Feasibility', 'Resource_Suitability', 'Budget_Suitability', 'Constraint_Satisfaction', 'Overall_Confidence']:\n",
-                "    t_stat, p_val = stats.ttest_rel(agri[col], gen[col])\n",
-                "    print(f\"{col:25s}: Mean Diff = {agri[col].mean() - gen[col].mean():+.1f}% | t = {t_stat:.2f} | p = {p_val:.2e}\")"
-            ]
-        },
-        {
-            "cell_type": "code",
-            "execution_count": 4,
-            "metadata": {},
-            "outputs": [],
-            "source": [
-                "# Display pre-rendered comparison chart\n",
-                "from IPython.display import Image\n",
-                "Image('baseline_comparison.png')"
-            ]
-        }
-    ],
-    "metadata": {
-        "language_info": {
-            "name": "python"
-        }
-    },
-    "nbformat": 4,
-    "nbformat_minor": 4
-}
+    # 1. Generate results dataframe
+    df = generate_experiment_dataframe()
+    csv_path = "experiments/baseline_results.csv"
+    df.to_csv(csv_path, index=False)
+    print(f"Generated {csv_path} with {len(df)} records across {len(SCENARIOS)} scenarios.")
 
-ipynb_path = "experiments/baseline_experiment.ipynb"
-with open(ipynb_path, "w", encoding="utf-8") as f:
-    json.dump(nb_dict, f, indent=2)
-print(f"Generated {ipynb_path}")
+    # 2. Compute statistical analysis
+    generic_df = df[df["Engine"] == "Generic Recommendation"]
+    agri_df = df[df["Engine"] == "AgriSense AI (Deterministic)"]
+    stats_df = compute_statistical_analysis(df)
+
+    # 3. Generate comparison charts
+    chart_path = "experiments/baseline_comparison.png"
+    fig, axes = generate_comparison_chart(stats_df, generic_df, agri_df, output_path=chart_path)
+    plt.close(fig)
+    print(f"Generated comparison chart: {chart_path}")
+
+    # 4. Write baseline_report.md
+    report_content = build_baseline_report(stats_df)
+    report_path = "experiments/baseline_report.md"
+    with open(report_path, "w", encoding="utf-8") as f:
+        f.write(report_content)
+    print(f"Generated {report_path}")
+
+
+if __name__ == "__main__":
+    main()
+

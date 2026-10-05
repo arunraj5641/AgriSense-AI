@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 from pydantic import BaseModel, ConfigDict
-from app.models.recommendation_review import ReviewStatus
+from app.models.recommendation_review import ReviewStatus, OverrideReason
 from app.recommendations.schemas import RecommendationResponse
 
 class ConstraintEvaluation(BaseModel):
@@ -81,6 +81,7 @@ class SourceResponse(SourceBase):
 class ReviewCreate(BaseModel):
     status: ReviewStatus
     comment: str
+    override_reason: OverrideReason | None = None
 
 class ReviewResponse(BaseModel):
     id: uuid.UUID
@@ -90,6 +91,7 @@ class ReviewResponse(BaseModel):
     reviewer_role: str | None = None
     status: ReviewStatus
     comment: str
+    override_reason: str | None = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -124,6 +126,7 @@ class OfficerQueueItem(BaseModel):
     explanation: str
     confidence_score: float
     estimated_cost: float | None
+    is_high_impact: bool = False
     created_at: datetime
     status: str
     review_status: str

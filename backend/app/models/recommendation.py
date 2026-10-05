@@ -1,7 +1,8 @@
 import uuid
 import enum
 from typing import Any
-from sqlalchemy import String, Float, ForeignKey, JSON, Enum
+from datetime import datetime
+from sqlalchemy import String, Float, ForeignKey, JSON, Enum, Boolean, DateTime
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, UUIDMixin, TimestampMixin
@@ -37,9 +38,17 @@ class Recommendation(Base, UUIDMixin, TimestampMixin):
     estimated_cost: Mapped[float | None] = mapped_column(Float, nullable=True)
     confidence_score: Mapped[float] = mapped_column(Float, nullable=False)
 
+    # High-impact classification & Execution gate (HITL Compliance)
+    is_high_impact: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    implemented_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    implemented_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
     # Relationships
     farm = relationship("Farm", back_populates="recommendations")
     sources = relationship("RecommendationSource", back_populates="recommendation", cascade="all, delete-orphan")
     reviews = relationship("RecommendationReview", back_populates="recommendation", cascade="all, delete-orphan", order_by="RecommendationReview.created_at.desc()")
     audits = relationship("RecommendationAudit", back_populates="recommendation", cascade="all, delete-orphan", order_by="RecommendationAudit.created_at.asc()")
+    implemented_by = relationship("User", foreign_keys=[implemented_by_id])
 

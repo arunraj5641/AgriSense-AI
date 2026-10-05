@@ -26,7 +26,8 @@ class AuditService:
             details=details
         )
         db.add(audit)
-        await db.flush()
+        if hasattr(db, "flush"):
+            await db.flush()
         return audit
 
     @staticmethod

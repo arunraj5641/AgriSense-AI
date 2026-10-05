@@ -26,20 +26,16 @@ class ReviewService:
                 detail="Only Agricultural Extension Officers can submit recommendation reviews."
             )
 
-        new_review = RecommendationReview(
-            id=uuid.uuid4(),
-            recommendation_id=recommendation_id,
-            reviewer_id=reviewer.id,
-            status=review_in.status,
-            comment=review_in.comment.strip()
-        )
-        db.add(new_review)
-
-        # Update recommendation status based on officer review if db supports execute
+        # Verify recommendation exists and cannot review an already implemented recommendation if db session supports execute
         if hasattr(db, "execute"):
             rec_res = await db.execute(select(Recommendation).where(Recommendation.id == recommendation_id))
             rec = rec_res.scalar_one_or_none()
             if rec:
+                if rec.status == RecommendationStatus.IMPLEMENTED:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Cannot review or revise a recommendation that has already been implemented."
+                    )
                 if review_in.status == ReviewStatus.APPROVED:
                     rec.status = RecommendationStatus.APPROVED
                 elif review_in.status == ReviewStatus.NEEDS_REVISION:
@@ -47,36 +43,47 @@ class ReviewService:
                 else:
                     rec.status = RecommendationStatus.UNDER_REVIEW
 
-        # Append audit events (Feature 6)
-        if hasattr(db, "flush"):
+        new_review = RecommendationReview(
+            id=uuid.uuid4(),
+            recommendation_id=recommendation_id,
+            reviewer_id=reviewer.id,
+            status=review_in.status,
+            comment=review_in.comment.strip(),
+            override_reason=review_in.override_reason
+        )
+        db.add(new_review)
+
+        # Append audit events with override reason context
+        reason_str = f" [Reason: {review_in.override_reason.value if hasattr(review_in.override_reason, 'value') else review_in.override_reason}]" if review_in.override_reason else ""
+        await AuditService.record_audit(
+            db=db,
+            recommendation_id=recommendation_id,
+            action="Officer Review Submitted",
+            user=reviewer,
+            details=f"Review status: {review_in.status.value}{reason_str}. Comment: {review_in.comment.strip()}"
+        )
+
+        if review_in.status == ReviewStatus.APPROVED:
             await AuditService.record_audit(
                 db=db,
                 recommendation_id=recommendation_id,
-                action="Officer Review Submitted",
+                action="Recommendation Approved",
                 user=reviewer,
-                details=f"Review status: {review_in.status}. Comment: {review_in.comment.strip()}"
+                details=f"Approved with comment: {review_in.comment.strip()}{reason_str}"
             )
-
-            if review_in.status == ReviewStatus.APPROVED:
-                await AuditService.record_audit(
-                    db=db,
-                    recommendation_id=recommendation_id,
-                    action="Recommendation Approved",
-                    user=reviewer,
-                    details=f"Approved with comment: {review_in.comment.strip()}"
-                )
-            elif review_in.status == ReviewStatus.NEEDS_REVISION:
-                await AuditService.record_audit(
-                    db=db,
-                    recommendation_id=recommendation_id,
-                    action="Revision Requested",
-                    user=reviewer,
-                    details=f"Revision requested: {review_in.comment.strip()}"
-                )
+        elif review_in.status == ReviewStatus.NEEDS_REVISION:
+            await AuditService.record_audit(
+                db=db,
+                recommendation_id=recommendation_id,
+                action="Revision Requested",
+                user=reviewer,
+                details=f"Revision requested: {review_in.comment.strip()}{reason_str}"
+            )
 
         await db.commit()
         await db.refresh(new_review)
 
+        override_val = str(new_review.override_reason.value if hasattr(new_review.override_reason, 'value') else new_review.override_reason) if new_review.override_reason else None
 
         return ReviewResponse(
             id=new_review.id,
@@ -86,9 +93,9 @@ class ReviewService:
             reviewer_role=str(reviewer.role.value if hasattr(reviewer.role, 'value') else reviewer.role),
             status=new_review.status,
             comment=new_review.comment,
+            override_reason=override_val,
             created_at=new_review.created_at or datetime.now()
         )
-
 
     @staticmethod
     async def get_reviews_for_recommendation(
@@ -114,6 +121,7 @@ class ReviewService:
                 reviewer_role=str(r.reviewer.role.value if (r.reviewer and hasattr(r.reviewer.role, 'value')) else (r.reviewer.role if r.reviewer else "expert")),
                 status=r.status,
                 comment=r.comment,
+                override_reason=str(r.override_reason.value if hasattr(r.override_reason, 'value') else r.override_reason) if r.override_reason else None,
                 created_at=r.created_at
             )
             for r in reviews
@@ -145,5 +153,7 @@ class ReviewService:
             reviewer_role=str(latest.reviewer.role.value if (latest.reviewer and hasattr(latest.reviewer.role, 'value')) else (latest.reviewer.role if latest.reviewer else "expert")),
             status=latest.status,
             comment=latest.comment,
+            override_reason=str(latest.override_reason.value if hasattr(latest.override_reason, 'value') else latest.override_reason) if latest.override_reason else None,
             created_at=latest.created_at
         )
+

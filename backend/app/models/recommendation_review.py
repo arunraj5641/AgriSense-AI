@@ -12,6 +12,15 @@ class ReviewStatus(str, enum.Enum):
     APPROVED = "APPROVED"
     NEEDS_REVISION = "NEEDS_REVISION"
 
+class OverrideReason(str, enum.Enum):
+    RESOURCE_CONSTRAINT = "RESOURCE_CONSTRAINT"
+    WEATHER_CONDITION = "WEATHER_CONDITION"
+    SOIL_CONDITION = "SOIL_CONDITION"
+    FARMER_PREFERENCE = "FARMER_PREFERENCE"
+    SAFETY_CONCERN = "SAFETY_CONCERN"
+    AGRONOMIC_JUDGMENT = "AGRONOMIC_JUDGMENT"
+    OTHER = "OTHER"
+
 class RecommendationReview(Base, UUIDMixin):
     __tablename__ = "recommendation_reviews"
 
@@ -25,8 +34,12 @@ class RecommendationReview(Base, UUIDMixin):
         Enum(ReviewStatus), nullable=False, default=ReviewStatus.PENDING
     )
     comment: Mapped[str] = mapped_column(String, nullable=False)
+    override_reason: Mapped[OverrideReason | None] = mapped_column(
+        Enum(OverrideReason), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
 
     # Relationships
     recommendation = relationship("Recommendation", back_populates="reviews")
     reviewer = relationship("User", back_populates="reviews")
+
