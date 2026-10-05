@@ -80,7 +80,7 @@ class SourceResponse(SourceBase):
 
 class ReviewCreate(BaseModel):
     status: ReviewStatus
-    comment: str
+    comment: str = ""
     override_reason: OverrideReason | None = None
 
 class ReviewResponse(BaseModel):

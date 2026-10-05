@@ -119,9 +119,136 @@ def test_engine_evaluates_weather_constraint():
     assert result["resource_snapshot"]["weather"]["condition"] == "Rainy"
     assert "Rainfall forecast" in result["resource_snapshot"]["influence_explanation"]
 
+def test_weather_integration_three_cases():
+    """
+    Evaluator Requirement 1:
+    CASE A: Normal weather -> normal recommendation.
+    CASE B: Heavy rain / unsuitable weather -> recommendation changes or is downgraded.
+    CASE C: Weather unavailable -> deterministic fallback works without crashing.
+    """
+    # CASE A: Normal weather -> normal recommendation
+    normal_weather = {
+        "condition": "Clear",
+        "temperature": 27.0,
+        "humidity": 55.0,
+        "rainfall_mm": 0.0,
+        "precipitation_probability": 5,
+        "wind_speed_kmh": 8.0,
+        "source": "OpenWeatherMap API"
+    }
+    res_a = RecommendationEngine.generate(
+        action="apply_fertilizer",
+        budget=1000.0,
+        equipment=["tractor", "spreader"],
+        irrigation="drip",
+        farm_size=2.0,
+        crop_stage="vegetative",
+        weather_data=normal_weather
+    )
+    assert res_a["evaluation"]["weather"]["passed"] is True
+    assert res_a["confidence_score"] == 0.95
+    assert "fertilizer" in res_a["recommendation"].lower()
+
+    # CASE B: Heavy rain -> recommendation changes / downgraded / deferred
+    heavy_rain_weather = {
+        "condition": "Heavy Rain",
+        "temperature": 22.0,
+        "humidity": 95.0,
+        "rainfall_mm": 35.0,
+        "precipitation_probability": 90,
+        "wind_speed_kmh": 18.0,
+        "source": "OpenWeatherMap API"
+    }
+    res_b = RecommendationEngine.generate(
+        action="apply_fertilizer",
+        budget=1000.0,
+        equipment=["tractor", "spreader"],
+        irrigation="drip",
+        farm_size=2.0,
+        crop_stage="vegetative",
+        weather_data=heavy_rain_weather
+    )
+    assert res_b["evaluation"]["weather"]["passed"] is False
+    assert "Advisory Deferred" in res_b["recommendation"]
+    assert res_b["confidence_score"] == 0.70
+
+    # CASE C: Weather unavailable / None -> deterministic fallback works without crashing
+    fallback_w = WeatherService.get_current_weather(None)
+    assert fallback_w is not None
+    assert fallback_w["temperature"] is not None
+    assert fallback_w["is_fallback"] is True
+
+    res_c = RecommendationEngine.generate(
+        action="apply_fertilizer",
+        budget=1000.0,
+        equipment=["tractor", "spreader"],
+        irrigation="drip",
+        farm_size=2.0,
+        crop_stage="vegetative",
+        weather_data=None  # Explicitly None to test offline/missing telemetry
+    )
+    assert res_c is not None
+    assert "recommendation" in res_c
+    assert res_c["confidence_score"] > 0
+
 def test_failure_modes_and_fallback_logic():
-    """Verify system failure modes (zero budget, missing equipment, missing soil report)."""
-    # 1. Zero Budget Failure Mode
+    """
+    Evaluator Requirement 3: Verify all 5 agronomic failure modes.
+    1. Missing soil data
+    2. Extreme weather
+    3. Unknown/unsupported crop or action
+    4. Zero/insufficient budget
+    5. Missing required equipment
+    """
+    # 1. Missing Soil Data Fallback
+    res_no_soil = RecommendationEngine.generate(
+        action="apply_fertilizer",
+        budget=1000.0,
+        equipment=["tractor", "spreader"],
+        irrigation="drip",
+        farm_size=2.0,
+        crop_stage="vegetative",
+        soil_report=None
+    )
+    assert res_no_soil["evaluation"]["soil"]["status"] == "Standard Levels"
+    assert res_no_soil["resource_snapshot"]["soil_nutrients"]["status"] == "Standard Levels"
+
+    # 2. Extreme Weather (Torrential rain & Gale wind during spraying)
+    extreme_weather = {
+        "condition": "Severe Storm",
+        "temperature": 40.0,
+        "humidity": 98.0,
+        "rainfall_mm": 50.0,
+        "precipitation_probability": 95,
+        "wind_speed_kmh": 38.0,
+        "source": "AgroClimatic-Fallback"
+    }
+    res_extreme_weather = RecommendationEngine.generate(
+        action="pest_control",
+        budget=1000.0,
+        equipment=["sprayer"],
+        irrigation="drip",
+        farm_size=2.0,
+        crop_stage="vegetative",
+        weather_data=extreme_weather
+    )
+    assert res_extreme_weather["evaluation"]["weather"]["passed"] is False
+    assert "Advisory Deferred" in res_extreme_weather["recommendation"]
+    assert res_extreme_weather["confidence_score"] == 0.70
+
+    # 3. Unknown Crop / Action Failure
+    res_unknown_action = RecommendationEngine.generate(
+        action="unknown_nonexistent_action",
+        budget=1000.0,
+        equipment=["tractor"],
+        irrigation="drip",
+        farm_size=2.0,
+        crop_stage="vegetative"
+    )
+    assert res_unknown_action["recommendation"] == "Unknown action."
+    assert res_unknown_action["confidence_score"] == 0.0
+
+    # 4. Zero / Insufficient Budget Failure Mode
     res_zero_budget = RecommendationEngine.generate(
         action="harvest",
         budget=0.0,
@@ -134,7 +261,7 @@ def test_failure_modes_and_fallback_logic():
     assert res_zero_budget["alternative"] is not None
     assert "manual" in res_zero_budget["recommendation"].lower() or "labor" in res_zero_budget["recommendation"].lower()
 
-    # 2. Missing Equipment Failure Mode
+    # 5. Missing Equipment Failure Mode
     res_no_machinery = RecommendationEngine.generate(
         action="apply_fertilizer",
         budget=1000.0,
@@ -145,18 +272,6 @@ def test_failure_modes_and_fallback_logic():
     )
     assert res_no_machinery["evaluation"]["equipment"]["passed"] is False
     assert len(res_no_machinery["evaluation"]["equipment"]["missing"]) > 0
-
-    # 3. Missing Soil Report Fallback
-    res_no_soil = RecommendationEngine.generate(
-        action="apply_fertilizer",
-        budget=1000.0,
-        equipment=["tractor", "spreader"],
-        irrigation="drip",
-        farm_size=2.0,
-        crop_stage="vegetative",
-        soil_report=None
-    )
-    assert res_no_soil["evaluation"]["soil"]["status"] == "Standard Levels"
 
 def test_e2e_recommendation_and_xai_weather_flow():
     """Verify end-to-end flow from engine output to DecisionExplanationService with weather."""

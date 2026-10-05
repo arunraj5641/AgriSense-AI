@@ -508,3 +508,168 @@ def test_8_high_impact_classification_authoritative():
         crop_stage="vegetative"
     )
     assert res_fert["is_high_impact"] is False
+
+
+def test_9_officer_review_approved_empty_comment(test_setup):
+    """
+    TEST 9:
+    Officer submits APPROVED review with empty comment (or omitted comment).
+    Expected:
+    - Succeeds with HTTP 201 Created.
+    - Status transitions to APPROVED.
+    - Empty string comment accepted.
+    """
+    rec_id = uuid.uuid4()
+    rec = Recommendation(
+        id=rec_id,
+        farm_id=test_setup["farm"].id,
+        recommendation="Apply targeted neem oil formulation for aphid control.",
+        explanation="Biological control recommended.",
+        status=RecommendationStatus.UNDER_REVIEW,
+        is_high_impact=True,
+        confidence_score=0.92,
+        created_at=datetime.now()
+    )
+    state = MockDbState(
+        rec=rec,
+        farmer_user=test_setup["farmer_user"],
+        farm=test_setup["farm"],
+        farmer=test_setup["farmer"]
+    )
+
+    async def override_officer():
+        return test_setup["officer_user"]
+
+    async def override_db():
+        yield state.make_mock_session()
+
+    app.dependency_overrides[get_current_user] = override_officer
+    app.dependency_overrides[get_db] = override_db
+
+    try:
+        # TEST 1: APPROVED + empty comment string
+        resp = client.post(
+            f"/api/v1/recommendations/{rec_id}/review",
+            json={"status": "APPROVED", "comment": ""}
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        assert data["status"] == "APPROVED"
+        assert data["comment"] == ""
+        assert rec.status == RecommendationStatus.APPROVED
+
+        # TEST 2: APPROVED + omitted comment (defaults to empty string)
+        rec.status = RecommendationStatus.UNDER_REVIEW
+        resp2 = client.post(
+            f"/api/v1/recommendations/{rec_id}/review",
+            json={"status": "APPROVED"}
+        )
+        assert resp2.status_code == 201
+        data2 = resp2.json()
+        assert data2["status"] == "APPROVED"
+        assert data2["comment"] == ""
+        assert rec.status == RecommendationStatus.APPROVED
+
+        # TEST 3: APPROVED + non-empty comment
+        rec.status = RecommendationStatus.UNDER_REVIEW
+        resp3 = client.post(
+            f"/api/v1/recommendations/{rec_id}/review",
+            json={"status": "APPROVED", "comment": "Approved after field inspection."}
+        )
+        assert resp3.status_code == 201
+        data3 = resp3.json()
+        assert data3["status"] == "APPROVED"
+        assert data3["comment"] == "Approved after field inspection."
+        assert rec.status == RecommendationStatus.APPROVED
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_11_officer_queue_filtering_and_lifecycle_sync(test_setup):
+    """
+    TEST 11:
+    Verify officer review queue status synchronization and pending queue filtering:
+    - GENERATED / UNDER_REVIEW items have review_status PENDING.
+    - APPROVED items have review_status APPROVED (not PENDING).
+    - IMPLEMENTED items have review_status IMPLEMENTED (not PENDING).
+    - GET /officer/queue?review_status=PENDING excludes APPROVED and IMPLEMENTED items.
+    """
+    rec_pending = Recommendation(
+        id=uuid.uuid4(),
+        farm_id=test_setup["farm"].id,
+        recommendation="Apply biological fungicide.",
+        explanation="Crop protection advisory.",
+        status=RecommendationStatus.UNDER_REVIEW,
+        is_high_impact=True,
+        confidence_score=0.91,
+        created_at=datetime.now()
+    )
+    rec_approved = Recommendation(
+        id=uuid.uuid4(),
+        farm_id=test_setup["farm"].id,
+        recommendation="Apply neem oil formulation.",
+        explanation="Approved advisory.",
+        status=RecommendationStatus.APPROVED,
+        is_high_impact=True,
+        confidence_score=0.94,
+        created_at=datetime.now()
+    )
+    rec_implemented = Recommendation(
+        id=uuid.uuid4(),
+        farm_id=test_setup["farm"].id,
+        recommendation="Drip irrigation cycle.",
+        explanation="Standard advisory.",
+        status=RecommendationStatus.IMPLEMENTED,
+        is_high_impact=False,
+        confidence_score=0.96,
+        created_at=datetime.now()
+    )
+
+    rec_pending.farm = test_setup["farm"]
+    rec_pending.reviews = []
+    rec_approved.farm = test_setup["farm"]
+    rec_approved.reviews = []
+    rec_implemented.farm = test_setup["farm"]
+    rec_implemented.reviews = []
+
+    state = MockDbState(
+        rec=[rec_pending, rec_approved, rec_implemented],
+        farmer_user=test_setup["farmer_user"],
+        farm=test_setup["farm"],
+        farmer=test_setup["farmer"]
+    )
+
+    async def override_officer():
+        return test_setup["officer_user"]
+
+    async def override_db():
+        yield state.make_mock_session()
+
+    app.dependency_overrides[get_current_user] = override_officer
+    app.dependency_overrides[get_db] = override_db
+
+    try:
+        # 1. Fetch entire queue without filter
+        resp_all = client.get("/api/v1/recommendations/officer/queue")
+        assert resp_all.status_code == 200
+        items_all = resp_all.json()
+        status_map = {item["id"]: (item["status"], item["review_status"]) for item in items_all}
+
+        assert status_map[str(rec_pending.id)] == ("UNDER_REVIEW", "PENDING")
+        assert status_map[str(rec_approved.id)] == ("APPROVED", "APPROVED")
+        assert status_map[str(rec_implemented.id)] == ("IMPLEMENTED", "IMPLEMENTED")
+
+        # 2. Fetch pending queue only: review_status=PENDING
+        resp_pending = client.get("/api/v1/recommendations/officer/queue?review_status=PENDING")
+        assert resp_pending.status_code == 200
+        items_pending = resp_pending.json()
+        pending_ids = [item["id"] for item in items_pending]
+
+        assert str(rec_pending.id) in pending_ids
+        assert str(rec_approved.id) not in pending_ids
+        assert str(rec_implemented.id) not in pending_ids
+    finally:
+        app.dependency_overrides.clear()
+
+
+

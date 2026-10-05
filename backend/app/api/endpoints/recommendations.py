@@ -239,14 +239,38 @@ async def get_officer_queue(
         crops_list = [c.crop_type for c in farm_obj.crops] if (farm_obj and farm_obj.crops) else []
 
         latest_rev = r.reviews[0] if r.reviews else None
-        current_rev_status = str(latest_rev.status.value if hasattr(latest_rev.status, 'value') else latest_rev.status) if latest_rev else "PENDING"
         current_rec_status = str(r.status.value if hasattr(r.status, 'value') else r.status)
 
+        # Synchronize review status with recommendation lifecycle:
+        # 1. If recommendation is already IMPLEMENTED, review status is IMPLEMENTED
+        # 2. If recommendation is APPROVED, review status is APPROVED
+        # 3. If recommendation is NEEDS_REVISION, review status is NEEDS_REVISION
+        # 4. Otherwise, use latest review status if available, else PENDING
+        if current_rec_status == "IMPLEMENTED":
+            current_rev_status = "IMPLEMENTED"
+        elif current_rec_status == "APPROVED":
+            current_rev_status = "APPROVED"
+        elif current_rec_status == "NEEDS_REVISION":
+            current_rev_status = "NEEDS_REVISION"
+        elif latest_rev:
+            current_rev_status = str(latest_rev.status.value if hasattr(latest_rev.status, 'value') else latest_rev.status)
+        else:
+            current_rev_status = "PENDING"
+
         # Apply filtering
-        if status and status.upper() != "ALL" and current_rec_status.upper() != status.upper():
-            continue
-        if review_status and review_status.upper() != "ALL" and current_rev_status.upper() != review_status.upper():
-            continue
+        if status and status.upper() != "ALL":
+            if status.upper() == "PENDING":
+                if current_rec_status not in ["GENERATED", "UNDER_REVIEW"]:
+                    continue
+            elif current_rec_status.upper() != status.upper():
+                continue
+
+        if review_status and review_status.upper() != "ALL":
+            if review_status.upper() == "PENDING":
+                if current_rev_status != "PENDING" or current_rec_status in ["APPROVED", "IMPLEMENTED", "NEEDS_REVISION"]:
+                    continue
+            elif current_rev_status.upper() != review_status.upper():
+                continue
         if crop and crop.lower() != "all" and not any(crop.lower() in c.lower() for c in crops_list):
             continue
         if farmer and farmer.lower() not in farmer_name.lower() and farmer.lower() not in farmer_email.lower():
